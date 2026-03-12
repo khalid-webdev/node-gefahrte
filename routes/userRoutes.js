@@ -4,6 +4,7 @@ const router = express.Router();
 const bcrypt = require("bcrypt");
 const User = require("../models/userModel");
 const jwt = require("jsonwebtoken");
+const auth = require("../middleware/auth");
 
 //user registration
 router.post("/", async (req, res) => {
@@ -63,25 +64,42 @@ router.post("/login", async (req, res) => {
   res.json(token);
 });
 
+//getting the logged in user details
+
+router.get("/",auth,async(req,res)=>{
+  const profile  =req.user
+  const user = await User.findById(req.user._id).select("-password");
+  res.status(200).json(user);
+})
+
 //resetting password api
 
 router.post("/request-reset-password", async (req, res) => {
-  const { email } = req.body;
-  const user = await User.findOne({ email: email });
-  if (!user) {
-    return res
-      .status(400)
-      .json({ message: "This email is not registered!", success: false });
-  }
-  const resetToken = jwt.sign({ _id: user._id }, process.env.JWT_KEY, {
-    expiresIn: "1h",
-  });
-  res.json({
-    message: "Password reset link sent to the email",
-    resetToken: resetToken,
-  });
+const {email}=req.body
+const user = await User.findOne({email:email})
+if(!user)return res.status(401).json({message:"Email is not registered!Try to register new one!",success:false});
+
+const resetToken = jwt.sign({_id:user._id},process.env.JWT_KEY,{expiresIn:"1h"});
+
+res.status(201).json({message:"password reset link send to email",resetToken:resetToken})
 });
-router.post("/reset-password", async (req, res) => {});
+
+
+router.post("/reset-password", async (req, res) => {
+  const {resetToken,newPassword} =req.body;
+  //step:1 verify the token
+  const verifiedUser =jwt.verify(resetToken,process.env.JWT_KEY);
+  let user = await User.findById(verifiedUser._id);
+  if(!user)return res.status(400).json({message:"Invalid or expires token!"})
+
+    //step:2 if token is verified then save the new password
+  const hashedPass = await bcrypt.hash(newPassword,10);
+
+  user.password=hashedPass
+  await user.save();
+
+  res.json({message:"Password reset successfully"})
+});
 
 const generateToken = (object) => {
   return jwt.sign(object, process.env.JWT_KEY);
